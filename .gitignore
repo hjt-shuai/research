@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 交付验证产物（无头浏览器截图 + E2E 脚本，仅本机使用，不随仓库分发）
+/.verify/
+

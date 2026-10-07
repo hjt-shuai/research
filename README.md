@@ -1,36 +1,153 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 考研备考中心 · 电子科技大学计算机技术
 
-## Getting Started
+个人长期备考系统（085404 计算机技术 · 全日制专硕）。
 
-First, run the development server:
+- 考试科目：101 政治 / 201 英语一 / 301 数学一 / 408 计算机学科专业基础
+- 备考周期：2026.10 – 2027.12（预计 2027 年 12 月下旬初试，2028 年入学）
+- 主目标：375+（保底 365+ / 冲刺 385+）
+
+> ⚠️ 招生人数、复试线、考试日期等均为**当前备考口径 / 预计**，不代表官方数据；
+> 2028 招生目录公布后请以 [电子科技大学研究生招生网](https://yz.uestc.edu.cn) 为准，
+> 并在首页「修改初试日期」处校准。
+
+## 启动方式
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install      # 首次运行
+npm run dev      # 开发模式，浏览器打开 http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+生产构建：
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run build && npm start
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+技术栈：Next.js 16（App Router）· React 19 · TypeScript · 原生 CSS（无 UI 库、无状态库）。
 
-## Learn More
+## 资料中心 / 情报库 / 真题库 / 自动同步（2026-10 新增）
 
-To learn more about Next.js, take a look at the following resources:
+### 页面
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| 页面 | 路径 | 内容 |
+| --- | --- | --- |
+| 📚 资料中心 | `/resources` | 9 组页签（官方 / 数学一 / 英语一 / 408 / 政治 / 真题 / 模拟 / 院校 / 我的资料 / 收藏）、关键词搜索、年份·科目·类型·来源·状态筛选、资料卡片（查看 / 打开来源 / 历史版本 / 收藏 / 删除 / 绑定月度任务）、新增资料与上传「我的资料」、信息源管理器 |
+| 🏫 院校情报 | `/schools` | 院校列表 + 目标院校详情（含来源标注）、2024–2028 年度档案（缺数据显「暂无官方数据」）、复试线/招生计划趋势图（缺数据显「暂无数据」）、官方资料链接、手动添加学校 |
+| 📝 真题 | `/questions` | 题目元数据录入（408 细分到章节）、筛选、错题排行榜、错题 → 教材/真题关联推荐、与掌握度同口径联动。**只存元数据与自己的解析，不抓取/不内嵌任何受版权保护的真题原文** |
+| ⚠ 更新中心 | `/updates` | 同步中心（6 项指标 + 立即检查 / 同步全部 / 更新记录）、待确认项确认或忽略、更新日志、模拟检测（4 个场景）、各来源最近检查结果 |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+首页新增：📢 最新招生情报（蓝=普通 / 橙=重要 / 红=重大）、资料同步中心简卡、月度任务上的「＋ 绑定资料 / 开始学习」。
 
-## Deploy on Vercel
+### 数据与迁移
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+`kaoyan.store` v3 → **v4**（纯新增字段，旧数据原样保留）：
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+version: 4,
+schools[]          // 院校档案（含官方链接与字段来源）
+schoolYears[]      // 每校每年的官方数据（状态：已发布/待官方发布/待核实）
+sources[]          // 信息源（官方域名、检查频率、同步状态、contentHash）
+resources[]        // 资料（类型/年份/版本/来源/状态/是否官方/是否当前）
+resourceVersions[] // 版本历史（永不删除，含变化说明与快照）
+questions[]        // 题目元数据 + 错题
+updateLog[]        // 更新日志（含确认状态）
+syncState{}        // 最近一次同步结果
+taskResources{}    // 月度任务 → 资料绑定
+userFiles[]        // 上传文件元数据（文件本体在 IndexedDB「kaoyan-files」）
+```
+
+读取统一走 `normalizeStore()`：缺字段补默认、非法值丢弃。v1/v2/v3 数据、以及旧版导出的
+JSON 都能继续读取，任务完成状态 / 学习进度 / 月份计划 / 用户设置一律不丢。
+
+### 自动同步怎么工作
+
+```
+前端（同步中心） → POST /api/sync（本地 Node 服务，绕开 CORS） → 官网页面
+                → 提取标题 / 发布时间 / 条目列表 → 计算 contentHash
+                → 与上次比较：无变化=不动；有变化=建新版本 + 标记 NEED_REVIEW + 写日志
+```
+
+硬约束（代码层面保证）：
+
+- **绝不自动覆盖**「当前有效」信息；只有人工点「确认更新」才会提升为 CURRENT，
+  同分类的官方旧版本自动转为「已归档」，历史版本永不删除。
+- **来源优先级**：招生单位官方招生网(1) ＞ 学院官方页面(2) ＞ 研招网(3) ＞ 教育部(4) ＞
+  出版社/课程(5) ＞ 其他(6)。第三方消息会被登记为「待官方确认」，且确认按钮被系统阻止。
+- **失败保留**：抓取失败只记录状态与错误，旧数据继续使用。
+- 年度目录类来源只在「官网不再显示『尚未开放』」时才判定为开放；普通新闻页面的日常变动
+  只写提醒日志，不会把资料库刷屏。
+
+### 内置官方信息源（19 个，均实测可访问）
+
+电子科技大学研究生招生网及其 8 个子栏目（简章目录 / 考试大纲 / 参考书 / 历年复试分数线 /
+报录查询 / 招生政策 / 下载中心）、研招专业目录系统 2026/2027/2028 三个年度入口、
+计算机科学与工程学院（网络空间安全学院）两个页面、中国研究生招生信息网两个页面、教育部。
+`lib/db/seed.ts` 里的每条内置事实都带来源，例如「学校代码 10614」「学制 3 年」来自 2026 招生章程原文。
+
+### 常用操作
+
+- **添加新的学校**：院校情报 → 添加学校（名称/代码/省份/研招官网/学院官网/目标专业/专业代码）。
+  官方招生网址需要手填（系统不猜 URL）；填好后可到「信息源管理器」把它加为来源并设置检查频率。
+- **添加 2028 新资料**：更新中心 → 立即检查更新；若官网已开放 2028 目录，系统会新建一条
+  「待确认」草稿 → 在待确认列表点「确认更新」，2028 即成为当前版本，旧版本自动归档。
+  也可在资料中心手工新建资料并「设为当前有效」。
+- **查看历史版本**：资料卡片 → 「历史版本（N）」，可看到版本号、发布时间、来源链接、contentHash、
+  变化说明，以及「设为当前版本」。
+- **手动执行同步**：首页资料同步中心或更新中心 → 「立即检查更新」（可检查来源）/「同步全部」；
+  单个来源可点「同步全部」旁的来源表里的「立即检查」。不联网时可用「模拟检测」验证整条链路。
+
+## 功能地图
+
+| 页面 | 路径 | 内容 |
+| --- | --- | --- |
+| 首页 | `/` | 倒计时、目标分 Dashboard、当前预测分、各科成绩、总体进度、知识掌握度、今日任务、学习记录、最近模考、成绩趋势、成绩分析、薄弱知识点、六阶段计划、月度任务、AI 入口、数据导入导出 |
+| 模考中心 | `/mock` | 录入模考成绩、自动算总分、统计（次数/最高分/近 3 次平均/距 375 差值）、总分与单科趋势图、历史记录 |
+| 知识掌握度 | `/knowledge?subject=math\|english\|cs408\|politics` | 知识点树（408 下分数据结构/组成原理/操作系统/计算机网络，逐层到章节），每个知识点可设学习状态、任务完成、正确率、标记薄弱，并可直接勾选关联的月度任务 |
+| AI 学习助手 | `/ai` | 今日学习分析、最近成绩分析、薄弱知识点、下周计划建议；Provider 可切换，另有 Prompt / 数据快照预览 |
+
+## 数据存储
+
+所有数据只保存在本机浏览器 `localStorage`，键名 `kaoyan.store`（当前 `version: 3`）。
+
+```
+{
+  version: 3,
+  tasks:     { "2026-10-0": true, ... },   // 月度任务勾选（key = 月份-序号）
+  examDate:  "2027-12-25T08:30",           // 预计初试日期（可修改）
+  examDateUserSet: false,                  // 是否由用户确认过
+  goals:     { politics: 70, english: 70, math: 120, cs408: 115 },
+  mocks:     [ { id, name, date, politics, english, math, cs408 } ],
+  mastery:   { "408-ds-tree": { status, taskDone, accuracy, weak } },
+  studyLog:  { "2026-10-07": { minutes, tasks } },
+  today:     { date, ids },                // 当日任务缓存
+  manualMinutes: { "2026-10-07": 60 }      // 按日期记录的手动补时
+}
+```
+
+- **兼容升级**：读取时会统一走 `normalizeStore()`，缺失字段补默认值、非法值丢弃。
+  v2 的 `studyMinutesManual`（单个数字）会自动迁移到 `manualMinutes` 的当天记录；
+  更早版本的 `kaoyan.tasks` / `kaoyan.examDate` 也仍会被读取。
+- **备份**：页面底部「导出备考数据」生成 JSON；「导入备考数据」会先显示当前/备份的数据摘要并要求确认，再整体恢复。
+- 清理浏览器数据前请先导出一次。
+
+## 代码结构
+
+```
+app/            页面与全局样式（/、/mock、/knowledge、/ai）
+components/     页面区块组件（每个首页模块一个文件）
+lib/
+  plan.ts       考试科目、六阶段、15 个月度计划（任务数据源）
+  progress.ts   任务 id、总进度 / 科目进度 / 月份进度 / 阶段进度
+  scoring.ts    目标分、等级（365/375/385）、模考统计、预测分与成绩分析
+  knowledge.ts  知识点树与掌握度计算（任务完成度+状态+正确率）
+  kpTasks.ts    知识点 ↔ 月度任务 关联表
+  todayTasks.ts 今日任务挑选规则（薄弱科目优先，3–5 项）
+  streak.ts     连续学习、本月天数、今日/本周时长
+  store.ts      AppStore 结构、默认值、读取强校验
+  migrate.ts    localStorage 读取与旧版本迁移
+  backup.ts     JSON 导出 / 导入
+  ai/           types(接口) · prompts(prompt 模板) · providers(Provider 实现) · service(注册) · agent(数据快照与编排)
+```
+
+AI 部分目前只有本地规则实现，`providers.ts` 里为 DeepSeek / OpenAI / 通义 / 本地模型预留了占位实现，
+接入时替换 `createProvider()` 即可，页面与数据结构无需改动。
